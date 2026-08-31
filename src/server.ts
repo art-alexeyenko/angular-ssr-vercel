@@ -22,7 +22,7 @@ const app = express();
  * That is why every route returned 200 on Vercel but 404/500 worked locally (no proxy
  * headers). Vercel's edge validates these headers, so trusting them here is safe.
  */
-const angularApp = new AngularNodeAppEngine({ trustProxyHeaders: true });
+const angularApp = new AngularNodeAppEngine();
 
 /**
  * Serve static files from /browser.
