@@ -14,7 +14,7 @@
           "builder": "@angular/build:application",
           "options": {
             "security": {
-              "allowedHosts": ["localhost", "*.localhost"]
+              "allowedHosts": ["localhost", "*.localhost", "*.vercel.app"]
             },
             "browser": "src/main.ts",
             "tsConfig": "tsconfig.json",
