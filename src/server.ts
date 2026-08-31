@@ -2,7 +2,6 @@ import {
   AngularNodeAppEngine,
   createNodeRequestHandler,
   isMainModule,
-  writeResponseToNodeResponse,
 } from '@angular/ssr/node';
 import express from 'express';
 import { join } from 'node:path';
@@ -25,12 +24,31 @@ app.use(
 
 /**
  * Handle all other requests by rendering the Angular application.
+ *
+ * Express 5 no longer accepts a bare `'*'` route pattern, so the SSR handler is
+ * registered as catch-all middleware. Instead of streaming the Web `Response` via
+ * `writeResponseToNodeResponse` (which sets `res.statusCode` and ends the stream
+ * directly), we explicitly copy the status and headers onto the Node response and
+ * send the body with `res.status(...).send(...)`. This is the pattern the
+ * Angular 20 SSR migration write-up uses and it propagates the status assigned by
+ * the server routes (e.g. 404 / 500) reliably through serverless runtimes such as
+ * Vercel, where direct stream termination can otherwise collapse the status to 200.
  */
-app.use((req, res, next) => {
-  angularApp
-    .handle(req)
-    .then((response) => (response ? writeResponseToNodeResponse(response, res) : next()))
-    .catch(next);
+app.use(async (req, res, next) => {
+  try {
+    const response = await angularApp.handle(req);
+
+    if (!response) {
+      next();
+      return;
+    }
+
+    res.status(response.status);
+    response.headers.forEach((value, key) => res.setHeader(key, value));
+    res.send(await response.text());
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
