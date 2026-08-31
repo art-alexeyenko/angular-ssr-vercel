@@ -29,7 +29,27 @@ app.use(
 app.use((req, res, next) => {
   angularApp
     .handle(req)
-    .then((response) => (response ? writeResponseToNodeResponse(response, res) : next()))
+    .then((response) => {
+      // TEMP DIAGNOSTIC: surface what the SSR engine actually sees/returns on Vercel.
+      // `url` is the path Angular matches server routes against; `status` is what the
+      // matched server route assigned. Compare these against the requested URL to tell
+      // whether the path is being lost (always same url) or the status is correct but
+      // getting flattened downstream.
+      console.log(
+        `[SSR] method=${req.method} url=${req.url} originalUrl=${req.originalUrl} ` +
+          `host=${req.headers.host} -> ${response ? `status=${response.status}` : 'null (falling through to next())'}`
+      );
+
+      if (!response) {
+        next();
+        return;
+      }
+
+      const engineStatus = response.status;
+      writeResponseToNodeResponse(response, res);
+      // After writing, confirm the status actually set on the Node response object.
+      console.log(`[SSR] url=${req.url} engineStatus=${engineStatus} res.statusCode=${res.statusCode}`);
+    })
     .catch(next);
 });
 
