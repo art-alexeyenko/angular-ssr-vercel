@@ -2,7 +2,6 @@ import {
   AngularNodeAppEngine,
   createNodeRequestHandler,
   isMainModule,
-  writeResponseToNodeResponse,
 } from '@angular/ssr/node';
 import express from 'express';
 import { join } from 'node:path';
@@ -11,6 +10,18 @@ const browserDistFolder = join(import.meta.dirname, '../browser');
 
 const app = express();
 const angularApp = new AngularNodeAppEngine();
+
+/**
+ * Explicit-status lookup for error routes. In some runtimes (observed on Vercel's
+ * serverless Node) the status assigned by `withRoutes(...)` in app.routes.server.ts
+ * does not survive to the emitted response and collapses to 200, even though the
+ * correct component is rendered. We reapply the intended status ourselves so it is
+ * deterministic everywhere. Keep this in sync with app.routes.server.ts.
+ */
+const statusByPath = new Map<string, number>([
+  ['/404', 404],
+  ['/500', 500],
+]);
 
 /**
  * Serve static files from /browser.
@@ -26,31 +37,37 @@ app.use(
 /**
  * Handle all other requests by rendering the Angular application.
  */
-app.use((req, res, next) => {
-  angularApp
-    .handle(req)
-    .then((response) => {
-      // TEMP DIAGNOSTIC: surface what the SSR engine actually sees/returns on Vercel.
-      // `url` is the path Angular matches server routes against; `status` is what the
-      // matched server route assigned. Compare these against the requested URL to tell
-      // whether the path is being lost (always same url) or the status is correct but
-      // getting flattened downstream.
-      console.log(
-        `[SSR] method=${req.method} url=${req.url} originalUrl=${req.originalUrl} ` +
-          `host=${req.headers.host} -> ${response ? `status=${response.status}` : 'null (falling through to next())'}`
-      );
+app.use(async (req, res, next) => {
+  try {
+    const response = await angularApp.handle(req);
 
-      if (!response) {
-        next();
-        return;
-      }
+    if (!response) {
+      next();
+      return;
+    }
 
-      const engineStatus = response.status;
-      writeResponseToNodeResponse(response, res);
-      // After writing, confirm the status actually set on the Node response object.
-      console.log(`[SSR] url=${req.url} engineStatus=${engineStatus} res.statusCode=${res.statusCode}`);
-    })
-    .catch(next);
+    // Prefer the intended status from the server-route table; fall back to whatever
+    // the engine assigned (e.g. 302 redirects for the wildcard route).
+    const engineStatus = response.status;
+    const sentStatus = statusByPath.get(req.path) ?? engineStatus;
+
+    // TEMP DIAGNOSTIC: keep until confirmed on Vercel, then remove this block.
+    console.log(
+      `[SSR] method=${req.method} url=${req.url} host=${req.headers.host} ` +
+        `engineStatus=${engineStatus} sentStatus=${sentStatus}`
+    );
+
+    res.status(sentStatus);
+    response.headers.forEach((value, key) => {
+      const lower = key.toLowerCase();
+      // Let res.send recompute these to match the (re)sent body.
+      if (lower === 'content-length' || lower === 'content-encoding') return;
+      res.setHeader(key, value);
+    });
+    res.send(Buffer.from(await response.arrayBuffer()));
+  } catch (error) {
+    next(error);
+  }
 });
 
 /**
