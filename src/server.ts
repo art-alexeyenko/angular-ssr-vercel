@@ -12,16 +12,52 @@ const app = express();
 const angularApp = new AngularNodeAppEngine();
 
 /**
- * Explicit-status lookup for error routes. In some runtimes (observed on Vercel's
- * serverless Node) the status assigned by `withRoutes(...)` in app.routes.server.ts
- * does not survive to the emitted response and collapses to 200, even though the
- * correct component is rendered. We reapply the intended status ourselves so it is
- * deterministic everywhere. Keep this in sync with app.routes.server.ts.
+ * Decide the HTTP status purely from the request path, up front — before Angular
+ * renders anything. This is authoritative because Angular's `withRoutes(...)` status
+ * (app.routes.server.ts) is not reliably propagated in every runtime: on Vercel's
+ * serverless Node it collapses to 200 even though the correct component is rendered.
+ *
+ * Returns `null` for paths whose status should come from the engine instead — e.g.
+ * the home page (200) or the wildcard route's 302 redirect. Keep in sync with
+ * app.routes.server.ts.
  */
-const statusByPath = new Map<string, number>([
-  ['/404', 404],
-  ['/500', 500],
-]);
+function statusForPath(pathname: string): number | null {
+  switch (pathname) {
+    case '/404':
+      return 404;
+    case '/500':
+      return 500;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Render a request with Angular.
+ *
+ * `AngularNodeAppEngine.handle()` reads `req.url` at call time, so to force the
+ * engine to render a *specific* route regardless of the URL the client asked for,
+ * temporarily point `req.url` at that route. Example:
+ *
+ *   const response = await renderAngular(req, '/404'); // render the 404 page
+ *
+ * Note: when you force a route whose path differs from the browser URL, the client
+ * bundle still bootstraps at the original URL, so its router may re-navigate on
+ * hydration. Force-render is therefore best for terminal responses (error pages).
+ */
+function renderAngular(req: express.Request, forcePath?: string) {
+  if (forcePath === undefined) {
+    return angularApp.handle(req);
+  }
+
+  const originalUrl = req.url;
+  req.url = forcePath;
+  try {
+    return angularApp.handle(req);
+  } finally {
+    req.url = originalUrl;
+  }
+}
 
 /**
  * Serve static files from /browser.
@@ -39,22 +75,24 @@ app.use(
  */
 app.use(async (req, res, next) => {
   try {
-    const response = await angularApp.handle(req);
+    // 1. Decide the status from the path, before we reach Angular.
+    const forcedStatus = statusForPath(req.path);
 
+    // 2. Render with Angular. (Pass a second arg to renderAngular to force a route.)
+    const response = await renderAngular(req);
     if (!response) {
       next();
       return;
     }
 
-    // Prefer the intended status from the server-route table; fall back to whatever
-    // the engine assigned (e.g. 302 redirects for the wildcard route).
-    const engineStatus = response.status;
-    const sentStatus = statusByPath.get(req.path) ?? engineStatus;
+    // 3. Emit Angular's rendered body, but with the status we already decided.
+    //    Fall back to the engine's status for non-error paths (home, redirects, ...).
+    const sentStatus = forcedStatus ?? response.status;
 
     // TEMP DIAGNOSTIC: keep until confirmed on Vercel, then remove this block.
     console.log(
-      `[SSR] method=${req.method} url=${req.url} host=${req.headers.host} ` +
-        `engineStatus=${engineStatus} sentStatus=${sentStatus}`
+      `[SSR] method=${req.method} path=${req.path} host=${req.headers.host} ` +
+        `engineStatus=${response.status} sentStatus=${sentStatus}`
     );
 
     res.status(sentStatus);
