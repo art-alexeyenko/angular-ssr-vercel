@@ -1,0 +1,16 @@
+# Angular / build output
+/dist
+/.angular
+/out-tsc
+
+# Node
+/node_modules
+npm-debug.log
+yarn-error.log
+
+# Vercel
+.vercel
+
+# Editors / OS
+.DS_Store
+Thumbs.db

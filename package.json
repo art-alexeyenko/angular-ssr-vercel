@@ -1,0 +1,39 @@
+{
+  "name": "minirep",
+  "version": "0.0.0",
+  "description": "Minimal Angular SSR app reproducing Vercel deployment issues.",
+  "private": true,
+  "scripts": {
+    "ng": "ng",
+    "build": "ng build",
+    "dev": "ng serve",
+    "serve:ssr": "node dist/minirep/server/server.mjs",
+    "start": "ng build && node dist/minirep/server/server.mjs",
+    "lint": "ng lint"
+  },
+  "dependencies": {
+    "@angular/common": "^21.1.0",
+    "@angular/compiler": "^21.1.0",
+    "@angular/core": "^21.1.0",
+    "@angular/platform-browser": "^21.1.0",
+    "@angular/platform-server": "^21.1.0",
+    "@angular/router": "^21.1.0",
+    "@angular/ssr": "^21.1.4",
+    "express": "^5.1.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular-eslint/builder": "^21.3.1",
+    "@angular/build": "^21.1.4",
+    "@angular/cli": "^21.1.4",
+    "@angular/compiler-cli": "^21.1.0",
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.17.19",
+    "angular-eslint": "^21.3.1",
+    "eslint": "^10.3.0",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.59.1"
+  }
+}
